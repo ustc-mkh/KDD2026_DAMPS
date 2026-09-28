@@ -69,22 +69,22 @@ class Config(object):
         file_config_dict = dict()
         file_list = []
         # get dataset and model files
-        cur_dir = os.getcwd()
-        cur_dir = os.path.join(cur_dir, 'configs')
+        cur_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'configs'))
         file_list.append(os.path.join(cur_dir, "overall.yaml"))
         file_list.append(os.path.join(cur_dir, "dataset", "{}.yaml".format(config_dict['dataset'])))
-        file_list.append(os.path.join(cur_dir, "model", "{}.yaml".format(config_dict['model'])))
+        file_list.append(os.path.join(cur_dir, "models", "{}.yaml".format(config_dict['model'])))
         if mg:
             file_list.append(os.path.join(cur_dir, "mg.yaml"))
 
         hyper_parameters = []
         for file in file_list:
-            if os.path.isfile(file):
-                with open(file, 'r', encoding='utf-8') as f:
-                    fdata = yaml.load(f.read(), Loader=self._build_yaml_loader())
-                    if fdata.get('hyper_parameters'):
-                        hyper_parameters.extend(fdata['hyper_parameters'])
-                    file_config_dict.update(fdata)
+            if not os.path.isfile(file):
+                raise FileNotFoundError("Required configuration file not found: {}".format(file))
+            with open(file, 'r', encoding='utf-8') as f:
+                fdata = yaml.load(f.read(), Loader=self._build_yaml_loader())
+                if fdata.get('hyper_parameters'):
+                    hyper_parameters.extend(fdata['hyper_parameters'])
+                file_config_dict.update(fdata)
                     
         file_config_dict['hyper_parameters'] = hyper_parameters
         return file_config_dict

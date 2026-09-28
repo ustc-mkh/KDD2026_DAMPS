@@ -56,7 +56,7 @@ class MGCN(GeneralRecommender):
                 image_adj = build_knn_normalized_graph(image_adj, topk=self.knn_k, is_sparse=self.sparse,
                                                        norm_type='sym')
                 torch.save(image_adj, image_adj_file)
-            self.image_original_adj = image_adj.cuda()
+            self.image_original_adj = image_adj.to(self.device)
 
         self.feature_filter = DAMPS(self.embedding_dim, self.device, self.v_feat, self.t_feat)
         if self.t_feat is not None:
@@ -67,10 +67,9 @@ class MGCN(GeneralRecommender):
                 text_adj = build_sim(self.text_embedding.weight.detach())
                 text_adj = build_knn_normalized_graph(text_adj, topk=self.knn_k, is_sparse=self.sparse, norm_type='sym')
                 torch.save(text_adj, text_adj_file)
-            self.text_original_adj = text_adj.cuda()
+            self.text_original_adj = text_adj.to(self.device)
 
         if self.v_feat is not None:
-            image_feats, text_feats = self.feature_filter(image_feats, text_feats)
             self.image_trs = nn.Linear(self.v_feat.shape[1], self.embedding_dim)
         if self.t_feat is not None:
             self.text_trs = nn.Linear(self.t_feat.shape[1], self.embedding_dim)
@@ -121,8 +120,9 @@ class MGCN(GeneralRecommender):
         def normalized_adj_single(adj):
             rowsum = np.array(adj.sum(1))
 
-            d_inv = np.power(rowsum, -0.5).flatten()
-            d_inv[np.isinf(d_inv)] = 0.
+            d_inv = np.zeros_like(rowsum)
+            np.power(rowsum, -0.5, out=d_inv, where=rowsum > 0)
+            d_inv = d_inv.flatten()
             d_mat_inv = sp.diags(d_inv)
 
             norm_adj = d_mat_inv.dot(adj_mat)
@@ -144,7 +144,7 @@ class MGCN(GeneralRecommender):
         indices = torch.from_numpy(np.vstack((sparse_mx.row, sparse_mx.col)).astype(np.int64))
         values = torch.from_numpy(sparse_mx.data)
         shape = torch.Size(sparse_mx.shape)
-        return torch.sparse.FloatTensor(indices, values, shape)
+        return torch.sparse_coo_tensor(indices, values, shape)
 
     def forward(self, adj, train=False):
         if self.v_feat is not None:
