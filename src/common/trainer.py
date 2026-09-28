@@ -6,6 +6,8 @@ r"""
 """
 
 import os
+import copy
+import math
 import itertools
 import torch
 import torch.optim as optim
@@ -18,6 +20,7 @@ from logging import getLogger
 
 from utils.utils import get_local_time, early_stopping, dict2str
 from utils.topk_evaluator import TopKEvaluator
+from utils.search_io import save_checkpoint
 
 
 class AbstractTrainer(object):
@@ -86,7 +89,9 @@ class Trainer(AbstractTrainer):
         tmp_dd = {}
         for j, k in list(itertools.product(config['metrics'], config['topk'])):
             tmp_dd[f'{j.lower()}@{k}'] = 0.0
-        self.best_valid_score = -1
+        self.best_valid_score = -math.inf if self.valid_metric_bigger else math.inf
+        self.best_epoch = None
+        self.best_model_state = None
         self.best_valid_result = tmp_dd
         self.best_test_upon_valid = tmp_dd
         self.train_loss_dict = dict()
@@ -208,7 +213,7 @@ class Trainer(AbstractTrainer):
         return valid_score, valid_result
 
     def _check_nan(self, loss):
-        if torch.isnan(loss):
+        if not torch.isfinite(loss).all():
             #raise ValueError('Training loss is nan')
             return True
 
@@ -241,7 +246,7 @@ class Trainer(AbstractTrainer):
             train_loss, _ = self._train_epoch(train_data, epoch_idx)
             if torch.is_tensor(train_loss):
                 # get nan loss
-                break
+                raise RuntimeError('Non-finite training loss at epoch {}'.format(epoch_idx))
             #for param_group in self.optimizer.param_groups:
             #    print('======lr: ', param_group['lr'])
             self.lr_scheduler.step()
@@ -260,6 +265,8 @@ class Trainer(AbstractTrainer):
             if (epoch_idx + 1) % self.eval_step == 0:
                 valid_start_time = time()
                 valid_score, valid_result = self._valid_epoch(valid_data)
+                if not math.isfinite(float(valid_score)):
+                    raise RuntimeError('Non-finite validation score at epoch {}'.format(epoch_idx))
                 self.best_valid_score, self.cur_step, stop_flag, update_flag = early_stopping(
                     valid_score, self.best_valid_score, self.cur_step,
                     max_step=self.stopping_step, bigger=self.valid_metric_bigger)
@@ -279,6 +286,23 @@ class Trainer(AbstractTrainer):
                         self.logger.info(update_output)
                     self.best_valid_result = valid_result
                     self.best_test_upon_valid = test_result
+                    self.best_epoch = epoch_idx
+                    if saved:
+                        # Keep the best epoch on CPU without retaining GPU storage.
+                        self.best_model_state = self.model.state_dict()
+                        for key, value in self.best_model_state.items():
+                            self.best_model_state[key] = (value.detach().cpu().clone()
+                                if torch.is_tensor(value) else copy.deepcopy(value))
+                        if self.config['checkpoint_path']:
+                            save_checkpoint(self.config['checkpoint_path'], {
+                                'model_state_dict': self.best_model_state,
+                                'epoch': self.best_epoch,
+                                'valid_score': float(self.best_valid_score),
+                                'valid_result': self.best_valid_result,
+                                'test_result': self.best_test_upon_valid,
+                                'config': dict(self.config.final_config_dict),
+                                'parameters': self.config['trial_parameters'],
+                            })
 
                 if stop_flag:
                     stop_output = '+++++Finished training, best eval result in epoch %d' % \
@@ -286,6 +310,8 @@ class Trainer(AbstractTrainer):
                     if verbose:
                         self.logger.info(stop_output)
                     break
+        if saved and self.best_model_state is not None:
+            self.model.load_state_dict(self.best_model_state)
         return self.best_valid_score, self.best_valid_result, self.best_test_upon_valid
 
 

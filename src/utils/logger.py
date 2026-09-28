@@ -21,12 +21,12 @@ def init_logger(config):
     """
     LOGROOT = './log/'
     dir_name = os.path.dirname(LOGROOT)
-    if not os.path.exists(dir_name):
-        os.makedirs(dir_name)
+    os.makedirs(dir_name, exist_ok=True)
 
     logfilename = '{}-{}-{}.log'.format(config['model'], config['dataset'], get_local_time())
 
-    logfilepath = os.path.join(LOGROOT, logfilename)
+    logfilepath = config['log_file'] or os.path.join(LOGROOT, logfilename)
+    os.makedirs(os.path.dirname(os.path.abspath(logfilepath)), exist_ok=True)
 
     filefmt = "%(asctime)-15s %(levelname)s %(message)s"
     filedatefmt = "%a %d %b %Y %H:%M:%S"
@@ -58,6 +58,7 @@ def init_logger(config):
 
     logging.basicConfig(
         level=level,
+        force=True,
         #handlers=[sh]
         handlers = [sh, fh]
     )

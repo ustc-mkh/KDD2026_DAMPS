@@ -43,7 +43,7 @@ class Config(object):
     Finally the learning_rate is equal to 0.02.
     """
 
-    def __init__(self, model=None, dataset=None, config_dict=None, mg=False):
+    def __init__(self, model=None, dataset=None, config_dict=None, mg=False, initialize_device=True):
         """
         Args:
             model (str/AbstractRecommender): the model name or the model class, default is None, if it is None, config
@@ -63,7 +63,8 @@ class Config(object):
         # config in cmd and main.py are latest
         self.final_config_dict.update(config_dict)
         self._set_default_parameters()
-        self._init_device()
+        if initialize_device:
+            self._init_device()
 
     def _load_dataset_model_config(self, config_dict, mg):
         file_config_dict = dict()
@@ -105,7 +106,7 @@ class Config(object):
 
     def _set_default_parameters(self):
         smaller_metric = ['rmse', 'mae', 'logloss']
-        valid_metric = self.final_config_dict['valid_metric'].split('@')[0]
+        valid_metric = self.final_config_dict['valid_metric'].lower().split('@')[0]
         self.final_config_dict['valid_metric_bigger'] = False if valid_metric in smaller_metric else True
         # if seed not in hyper_parameters, then add
         if "seed" not in self.final_config_dict['hyper_parameters']:
