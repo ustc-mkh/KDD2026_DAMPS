@@ -1,16 +1,18 @@
-embedding_size: 64
-n_ui_layers: [1,2,3,4]
-n_layers: [1,2,3,4]
+# Clothing MGCN+DAMPS run recorded in cd5b695:log/MGCN+DAMPS.log.
+embedding_size: 256
+n_ui_layers: 2
+n_layers: 1
+knn_k: 10
 
 learning_rate_scheduler: [0.96, 50]
 lambda_coeff: 0.9
 reg_weight: 1e-04
-
-knn_k: [10,15,20,40]
-
 learning_rate: 0.001
 
-cl_loss: [0.01,0.02,0.03]
-# lambda_psi: [100,200,300,400,500]
+seed: [999]
+cl_loss: [0.01]
+# overall.yaml supplies the seed search dimension.
+hyper_parameters: ["cl_loss"]
 
-hyper_parameters: ["n_ui_layers","n_layers","cl_loss","knn_k"]
+metrics: ["Recall", "NDCG"]
+topk: [10, 20]

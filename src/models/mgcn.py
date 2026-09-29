@@ -58,7 +58,6 @@ class MGCN(GeneralRecommender):
                 torch.save(image_adj, image_adj_file)
             self.image_original_adj = image_adj.cuda()
 
-        self.feature_filter = DAMPS(self.embedding_dim, self.device, self.v_feat, self.t_feat)
         if self.t_feat is not None:
             self.text_embedding = nn.Embedding.from_pretrained(self.t_feat, freeze=False)
             if os.path.exists(text_adj_file):
@@ -70,7 +69,6 @@ class MGCN(GeneralRecommender):
             self.text_original_adj = text_adj.cuda()
 
         if self.v_feat is not None:
-            # image_feats, text_feats = self.feature_filter(image_feats, text_feats)
             self.image_trs = nn.Linear(self.v_feat.shape[1], self.embedding_dim)
         if self.t_feat is not None:
             self.text_trs = nn.Linear(self.t_feat.shape[1], self.embedding_dim)
@@ -104,6 +102,9 @@ class MGCN(GeneralRecommender):
         )
 
         self.tau = 0.5
+
+        # Match the module initialization order shown in the historical training log.
+        self.feature_filter = DAMPS(self.embedding_dim, self.device, self.v_feat, self.t_feat)
         
 
     def pre_epoch_processing(self):
