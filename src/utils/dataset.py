@@ -15,8 +15,6 @@ import pandas as pd
 import numpy as np
 import torch
 from utils.data_utils import (ImageResize, ImagePad, image_to_tensor, load_decompress_img_from_lmdb_value)
-import lmdb
-
 
 class RecDataset(object):
     def __init__(self, config, df=None):

@@ -70,7 +70,7 @@ class MGCN(GeneralRecommender):
             self.text_original_adj = text_adj.cuda()
 
         if self.v_feat is not None:
-            image_feats, text_feats = self.feature_filter(image_feats, text_feats)
+            # image_feats, text_feats = self.feature_filter(image_feats, text_feats)
             self.image_trs = nn.Linear(self.v_feat.shape[1], self.embedding_dim)
         if self.t_feat is not None:
             self.text_trs = nn.Linear(self.t_feat.shape[1], self.embedding_dim)
