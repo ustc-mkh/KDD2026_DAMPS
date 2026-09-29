@@ -43,7 +43,7 @@ class Config(object):
     Finally the learning_rate is equal to 0.02.
     """
 
-    def __init__(self, model=None, dataset=None, config_dict=None, mg=False, initialize_device=True):
+    def __init__(self, model=None, dataset=None, config_dict=None, mg=False):
         """
         Args:
             model (str/AbstractRecommender): the model name or the model class, default is None, if it is None, config
@@ -63,29 +63,28 @@ class Config(object):
         # config in cmd and main.py are latest
         self.final_config_dict.update(config_dict)
         self._set_default_parameters()
-        if initialize_device:
-            self._init_device()
+        self._init_device()
 
     def _load_dataset_model_config(self, config_dict, mg):
         file_config_dict = dict()
         file_list = []
         # get dataset and model files
-        cur_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'configs'))
+        cur_dir = os.getcwd()
+        cur_dir = os.path.join(cur_dir, 'configs')
         file_list.append(os.path.join(cur_dir, "overall.yaml"))
         file_list.append(os.path.join(cur_dir, "dataset", "{}.yaml".format(config_dict['dataset'])))
-        file_list.append(os.path.join(cur_dir, "models", "{}.yaml".format(config_dict['model'])))
+        file_list.append(os.path.join(cur_dir, "model", "{}.yaml".format(config_dict['model'])))
         if mg:
             file_list.append(os.path.join(cur_dir, "mg.yaml"))
 
         hyper_parameters = []
         for file in file_list:
-            if not os.path.isfile(file):
-                raise FileNotFoundError("Required configuration file not found: {}".format(file))
-            with open(file, 'r', encoding='utf-8') as f:
-                fdata = yaml.load(f.read(), Loader=self._build_yaml_loader())
-                if fdata.get('hyper_parameters'):
-                    hyper_parameters.extend(fdata['hyper_parameters'])
-                file_config_dict.update(fdata)
+            if os.path.isfile(file):
+                with open(file, 'r', encoding='utf-8') as f:
+                    fdata = yaml.load(f.read(), Loader=self._build_yaml_loader())
+                    if fdata.get('hyper_parameters'):
+                        hyper_parameters.extend(fdata['hyper_parameters'])
+                    file_config_dict.update(fdata)
                     
         file_config_dict['hyper_parameters'] = hyper_parameters
         return file_config_dict
@@ -106,7 +105,7 @@ class Config(object):
 
     def _set_default_parameters(self):
         smaller_metric = ['rmse', 'mae', 'logloss']
-        valid_metric = self.final_config_dict['valid_metric'].lower().split('@')[0]
+        valid_metric = self.final_config_dict['valid_metric'].split('@')[0]
         self.final_config_dict['valid_metric_bigger'] = False if valid_metric in smaller_metric else True
         # if seed not in hyper_parameters, then add
         if "seed" not in self.final_config_dict['hyper_parameters']:

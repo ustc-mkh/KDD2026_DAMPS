@@ -137,9 +137,9 @@ def build_sim(context):
     return sim
 
 def get_sparse_laplacian(edge_index, edge_weight, num_nodes, normalization='none'):
+    from torch_scatter import scatter_add
     row, col = edge_index[0], edge_index[1]
-    deg = edge_weight.new_zeros(num_nodes)
-    deg.index_add_(0, row, edge_weight)
+    deg = scatter_add(edge_weight, row, dim=0, dim_size=num_nodes)
 
     if normalization == 'sym':
         deg_inv_sqrt = deg.pow_(-0.5)

@@ -15,7 +15,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from .damps import DAMPS
-from utils.search_io import save_checkpoint
 from common.abstract_recommender import GeneralRecommender
 from utils.utils import build_sim, compute_normalized_laplacian, build_knn_neighbourhood, build_knn_normalized_graph
 
@@ -24,7 +23,6 @@ class MGCN(GeneralRecommender):
     def __init__(self, config, dataset):
         super(MGCN, self).__init__(config, dataset)
         self.sparse = True
-        self.use_damps = config['use_damps'] is not False
         self.cl_loss = config['cl_loss']
         self.n_ui_layers = config['n_ui_layers']
         self.embedding_dim = config['embedding_size']
@@ -52,27 +50,27 @@ class MGCN(GeneralRecommender):
         if self.v_feat is not None:
             self.image_embedding = nn.Embedding.from_pretrained(self.v_feat, freeze=False)
             if os.path.exists(image_adj_file):
-                image_adj = torch.load(image_adj_file, map_location=self.device, weights_only=True)
+                image_adj = torch.load(image_adj_file)
             else:
                 image_adj = build_sim(self.image_embedding.weight.detach())
                 image_adj = build_knn_normalized_graph(image_adj, topk=self.knn_k, is_sparse=self.sparse,
                                                        norm_type='sym')
-                save_checkpoint(image_adj_file, image_adj.cpu())
-            self.image_original_adj = image_adj.to(self.device)
+                torch.save(image_adj, image_adj_file)
+            self.image_original_adj = image_adj.cuda()
 
-        if self.use_damps:
-            self.feature_filter = DAMPS(self.embedding_dim, self.device, self.v_feat, self.t_feat)
+        self.feature_filter = DAMPS(self.embedding_dim, self.device, self.v_feat, self.t_feat)
         if self.t_feat is not None:
             self.text_embedding = nn.Embedding.from_pretrained(self.t_feat, freeze=False)
             if os.path.exists(text_adj_file):
-                text_adj = torch.load(text_adj_file, map_location=self.device, weights_only=True)
+                text_adj = torch.load(text_adj_file)
             else:
                 text_adj = build_sim(self.text_embedding.weight.detach())
                 text_adj = build_knn_normalized_graph(text_adj, topk=self.knn_k, is_sparse=self.sparse, norm_type='sym')
-                save_checkpoint(text_adj_file, text_adj.cpu())
-            self.text_original_adj = text_adj.to(self.device)
+                torch.save(text_adj, text_adj_file)
+            self.text_original_adj = text_adj.cuda()
 
         if self.v_feat is not None:
+            image_feats, text_feats = self.feature_filter(image_feats, text_feats)
             self.image_trs = nn.Linear(self.v_feat.shape[1], self.embedding_dim)
         if self.t_feat is not None:
             self.text_trs = nn.Linear(self.t_feat.shape[1], self.embedding_dim)
@@ -123,9 +121,8 @@ class MGCN(GeneralRecommender):
         def normalized_adj_single(adj):
             rowsum = np.array(adj.sum(1))
 
-            d_inv = np.zeros_like(rowsum)
-            np.power(rowsum, -0.5, out=d_inv, where=rowsum > 0)
-            d_inv = d_inv.flatten()
+            d_inv = np.power(rowsum, -0.5).flatten()
+            d_inv[np.isinf(d_inv)] = 0.
             d_mat_inv = sp.diags(d_inv)
 
             norm_adj = d_mat_inv.dot(adj_mat)
@@ -147,7 +144,7 @@ class MGCN(GeneralRecommender):
         indices = torch.from_numpy(np.vstack((sparse_mx.row, sparse_mx.col)).astype(np.int64))
         values = torch.from_numpy(sparse_mx.data)
         shape = torch.Size(sparse_mx.shape)
-        return torch.sparse_coo_tensor(indices, values, shape)
+        return torch.sparse.FloatTensor(indices, values, shape)
 
     def forward(self, adj, train=False):
         if self.v_feat is not None:
@@ -155,8 +152,7 @@ class MGCN(GeneralRecommender):
         if self.t_feat is not None:
             text_feats = self.text_trs(self.text_embedding.weight)
 
-        if self.use_damps:
-            image_feats, text_feats = self.feature_filter(image_feats, text_feats)
+        image_feats, text_feats = self.feature_filter(image_feats, text_feats)
         # Behavior-Guided Purifier
         image_item_embeds = torch.multiply(self.item_id_embedding.weight, self.gate_v(image_feats))
         text_item_embeds = torch.multiply(self.item_id_embedding.weight, self.gate_t(text_feats))

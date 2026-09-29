@@ -54,7 +54,7 @@ class DAMPS(nn.Module):
                 avg_R = torch.atan2(sin_mean, cos_mean)   
             else:
                 avg_R = torch.zeros(self.freq_dim, device=device)
-        self.register_buffer('avg_R', avg_R.to(device))
+        self.avg_R = avg_R.to(device)
         self.psi = nn.Parameter(torch.zeros(self.freq_dim, device=device))
 
 
