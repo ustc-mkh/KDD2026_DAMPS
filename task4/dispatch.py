@@ -40,6 +40,28 @@ def ready(job):
     d = root/'data'/job['dataset']
     return all((d/f).exists() for f in [job['dataset']+'.inter', 'image_feat.npy', 'text_feat.npy'])
 
+class ExistingProcess:
+    """Reconnect to this queue's own worker after dispatcher restart."""
+    def __init__(self, pid, job): self.pid, self.job = pid, job
+    def poll(self):
+        cmd=Path('/proc')/str(self.pid)/'cmdline'
+        try:
+            if str(root/'runs'/run_id(self.job)).encode() in cmd.read_bytes(): return None
+        except FileNotFoundError: pass
+        return 0 if (root/'runs'/run_id(self.job)/'result.json').exists() else 1
+    def wait(self):
+        while (ret := self.poll()) is None: time.sleep(10)
+        return ret
+
+if (root/'queue-status.json').exists():
+    previous=json.loads((root/'queue-status.json').read_text())
+    for gpu, record in previous.get('running',{}).items():
+        job={k:record[k] for k in ('dataset','variant','seed')}
+        proc=ExistingProcess(record['pid'],job)
+        if proc.poll() is None:
+            running[gpu]=(proc,open(os.devnull,'w'),job)
+(root/'queue.pid').write_text(str(os.getpid()))
+
 while True:
     for gpu, (proc, log, job) in list(running.items()):
         ret = proc.poll()
@@ -57,7 +79,7 @@ while True:
     temporary=root/'queue-status.json.tmp'
     temporary.write_text(json.dumps(status,indent=2)); temporary.replace(root/'queue-status.json')
     if not pending and not running: break
-    if resources_ok():
+    if not failed and resources_ok():
         snapshot=gpu_snapshot()
         for gpu in a.gpus.split(','):
             if gpu in running or gpu not in snapshot: continue
@@ -80,7 +102,9 @@ while True:
         print('Failed jobs require review:',sorted(failed),flush=True)
         # Do not spread an implementation failure over the remaining matrix.
         for proc,log,job in running.values():
-            proc.wait(); log.close()
+            ret=proc.wait(); log.close()
+            if ret != 0:
+                (root/'runs'/run_id(job)/'failure.json').write_text(json.dumps({'returncode':ret}))
         break
     time.sleep(30)
 subprocess.run([sys.executable,str(repo/'task4/summarize.py'),'--root',str(root)])
