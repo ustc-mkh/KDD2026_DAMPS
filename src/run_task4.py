@@ -93,6 +93,10 @@ def main():
     dump(out / 'data_manifest.json', manifest)
     # Preserve author-provided per-user split labels (rounding changes global ratios).
     train_ds, valid_ds, test_ds = dataset.split()
+    # Upstream populates this field as a side effect of printing a dataset.
+    # Initialize explicitly so correctness does not depend on logging verbosity.
+    for split in (train_ds, valid_ds, test_ds):
+        split.inter_num = len(split)
     train = TrainDataLoader(config, train_ds, batch_size=config['train_batch_size'], shuffle=True)
     valid = EvalDataLoader(config, valid_ds, additional_dataset=train_ds, batch_size=config['eval_batch_size'])
     test = EvalDataLoader(config, test_ds, additional_dataset=train_ds, batch_size=config['eval_batch_size'])
