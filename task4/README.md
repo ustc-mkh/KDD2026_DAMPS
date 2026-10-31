@@ -42,6 +42,32 @@ Queue root contains `data/{baby,sports,clothing,elec,microlens}` and `runs/`. La
 
 Outputs per run: `metadata.json`, data hash manifest, per-epoch validation/time/GPU memory JSONL, `progress.json`, validation-selected `best.pt`, `result.json`, console log. Summary reads completed result files only and produces CSV plus an ablation plot. Checkpoints/data/runtime output stay outside Git. Do not publish preliminary results as completed experiments. PR target is `ustc-mkh/KDD2026_DAMPS`, after experiments and analysis are complete.
 
+## Two additional paired seeds (2026-10-31)
+
+The first 25 seed-999 runs are archived in `results/`. Their Raw/Full comparison does not show consistent gains. The follow-up plan `plan_seeds_20261031.json` adds seeds 2024 and 2025 for Raw and Full on each dataset (20 new runs). It does not change any training/model/config file or extend the single-seed ablations. See `audit_20261031/INTEGRATION_AUDIT.md`: the author's public history and Zenodo release contain no SMORE implementation. The current shared module in COMP5331 is byte-identical to our snapshot; the exact author SMORE insertion path remains unconfirmed.
+
+Use a separate follow-up root, with its `data` symlink pointing to the first root's unchanged data, and empty `runs`, `logs` and `tmp` directories. Do not reuse previous run directories. After direct-network SSH connection with forwarding disabled:
+
+```sh
+python task4/test_adapter.py
+python task4/test_integration_route.py
+python task4/test_seed_summary.py
+python task4/verify_fixed_protocol.py --data-root /absolute/followup-root/data
+nohup python -u task4/dispatch.py --root /absolute/followup-root --gpus 4,5 \
+  --plan task4/plan_seeds_20261031.json --reference-root /absolute/first-root \
+  > /absolute/followup-root/logs/queue.log 2>&1 < /dev/null &
+```
+
+The queue checks GPU processes every 30 seconds. If another workload appears on a selected GPU, it verifies the identity of its own worker, stops only that worker, archives the incomplete attempt, and queues the same configuration for a fresh run when resources are free. Previously completed results are preserved. Start failures stop new dispatch while other running workers finish. No commands signal existing unrelated experiments.
+
+At queue completion `summarize_seeds.py` combines the ten original Raw/Full results with the twenty new results. It verifies fixed parameters, data fingerprints, environment and validation-selected checkpoint consistency before producing per-run metrics/timing/memory, mean/sample-SD tables, paired differences and a three-seed figure. Partial data is labelled partial; paired differences use only matching seeds. Run the same summary command manually if needed:
+
+```sh
+python task4/summarize_seeds.py --root /absolute/followup-root --reference-root /absolute/first-root
+```
+
+The frozen source and dataset fingerprints are recorded in `audit_20261031/fixed_protocol.json`. A PR will be proposed only after reviewing the completed repeated-seed results.
+
 ## Direct preparation and environment reconstruction
 
 On the chosen server, clear all upper/lowercase proxy variables and `SSH_AUTH_SOCK`, set `NO_PROXY='*'`, and disable SSH forwards (`ClearAllForwardings=yes`, `ForwardAgent=no`). Use an isolated virtual environment; set `PIP_CONFIG_FILE=/dev/null`. Install `requirements-lock.txt` with the PyTorch CUDA 12.4 package index and `https://data.pyg.org/whl/torch-2.4.0+cu124.html` wheel links for torch_scatter. `download_data.py --output /absolute/data` discovers the two author Drive folders and downloads only interaction and image/text feature files; it ignores pretrained models and unrelated data. The script forces direct connections and records original file IDs.

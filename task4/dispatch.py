@@ -4,6 +4,7 @@ import fcntl
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -12,6 +13,8 @@ from pathlib import Path
 p = argparse.ArgumentParser()
 p.add_argument('--root', required=True)
 p.add_argument('--gpus', default='4,5')
+p.add_argument('--plan', type=Path, default=Path(__file__).with_name('plan.json'))
+p.add_argument('--reference-root', type=Path)
 a = p.parse_args()
 root = Path(a.root).resolve()
 repo = Path(__file__).resolve().parents[1]
@@ -22,7 +25,9 @@ for k in list(os.environ):
 os.environ.update(OMP_NUM_THREADS='4', MKL_NUM_THREADS='4', OPENBLAS_NUM_THREADS='4',
                   PYTHONHASHSEED='999', MPLBACKEND='Agg', MPLCONFIGDIR=str(root/'tmp/matplotlib'),
                   NO_PROXY='*', no_proxy='*')
-plan = json.loads((repo/'task4/plan.json').read_text())
+plan = json.loads(a.plan.read_text())
+assert len({(j['dataset'],j['variant'],j['seed']) for j in plan}) == len(plan)
+(root/'plan.json').write_text(json.dumps(plan,indent=2))
 running = {}
 failed = {p.parent.name for p in (root/'runs').glob('*/failure.json')}
 
@@ -33,6 +38,11 @@ def gpu_snapshot():
 def resources_ok():
     mem = {line.split(':')[0]: int(line.split()[1]) for line in Path('/proc/meminfo').read_text().splitlines() if ':' in line and line.split()[1].isdigit()}
     return os.getloadavg()[0] < os.cpu_count()*0.5 and mem['MemAvailable'] > 64*1024**2 and shutil.disk_usage(root).free > 100*1024**3
+
+def compute_apps():
+    rows=subprocess.check_output(['nvidia-smi','--query-compute-apps=gpu_uuid,pid','--format=csv,noheader'],text=True)
+    pairs=[tuple(p.strip() for p in row.split(',')) for row in rows.splitlines() if row.strip()]
+    return [(uuid,int(pid)) for uuid,pid in pairs]
 
 def run_id(job): return f"{job['dataset']}__{job['variant']}__seed{job['seed']}"
 
@@ -71,6 +81,38 @@ while True:
                 failed.add(run_id(job))
                 (root/'runs'/run_id(job)/'failure.json').write_text(json.dumps({'returncode':ret}))
             del running[gpu]
+    # If another workload takes a card, yield only this queue's own worker.
+    # Restart its exact configuration later; completed results are never replaced.
+    if running:
+        snapshot=gpu_snapshot()
+        apps=compute_apps()
+        for gpu,(proc,log,job) in list(running.items()):
+            uuid=snapshot[gpu][0]
+            outsiders=[pid for card,pid in apps if card==uuid and pid!=proc.pid]
+            if not outsiders or proc.poll() is not None: continue
+            process_path=Path('/proc')/str(proc.pid)
+            cmd=process_path/'cmdline'
+            try:
+                if process_path.stat().st_uid != os.getuid() or str(root/'runs'/run_id(job)).encode() not in cmd.read_bytes():
+                    raise RuntimeError('Worker identity changed; refusing to signal process')
+            except FileNotFoundError:
+                continue  # Finished between the GPU snapshot and identity check.
+            print('YIELD',run_id(job),'GPU',gpu,'other PIDs',outsiders,flush=True)
+            try: os.kill(proc.pid,signal.SIGTERM)
+            except ProcessLookupError: continue
+            for _ in range(20):
+                if proc.poll() is not None: break
+                time.sleep(0.5)
+            if proc.poll() is None:
+                try: os.kill(proc.pid,signal.SIGKILL)
+                except ProcessLookupError: pass
+            proc.wait(); log.close()
+            out=root/'runs'/run_id(job)
+            if not (out/'result.json').exists():
+                (out/'interrupted.json').write_text(json.dumps({'reason':'yield_to_other_gpu_process','other_pids':outsiders}))
+                archive=root/'interrupted_attempts'; archive.mkdir(exist_ok=True)
+                out.rename(archive/(run_id(job)+'__'+str(time.time_ns())))
+            del running[gpu]
     complete = [run_id(j) for j in plan if (root/'runs'/run_id(j)/'result.json').exists()]
     pending = [j for j in plan if run_id(j) not in complete and run_id(j) not in failed and j not in [v[2] for v in running.values()]]
     status = dict(updated_utc=time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),
@@ -78,15 +120,14 @@ while True:
                   waiting_data=[run_id(j) for j in pending if not ready(j)], pending=[run_id(j) for j in pending])
     temporary=root/'queue-status.json.tmp'
     temporary.write_text(json.dumps(status,indent=2)); temporary.replace(root/'queue-status.json')
-    if not pending and not running: break
+    if (not pending or failed) and not running: break
     if not failed and resources_ok():
         snapshot=gpu_snapshot()
         for gpu in a.gpus.split(','):
             if gpu in running or gpu not in snapshot: continue
             uuid, used, utilization=snapshot[gpu]
             # A zero-utilization card with an allocated process is still occupied.
-            apps=subprocess.check_output(['nvidia-smi','--query-compute-apps=gpu_uuid,pid','--format=csv,noheader'],text=True)
-            if uuid in apps or int(used)>128 or int(utilization)>5: continue
+            if any(card==uuid for card,pid in compute_apps()) or int(used)>128 or int(utilization)>5: continue
             available=[j for j in pending if ready(j)]
             if not available: continue
             job=available[0]; pending.remove(job)
@@ -98,13 +139,9 @@ while True:
             proc=subprocess.Popen(cmd,stdout=log,stderr=subprocess.STDOUT,stdin=subprocess.DEVNULL,cwd=repo/'src')
             running[gpu]=(proc,log,job)
             print('START',run_id(job),'GPU',gpu,'PID',proc.pid,flush=True)
-    if failed:
-        print('Failed jobs require review:',sorted(failed),flush=True)
-        # Do not spread an implementation failure over the remaining matrix.
-        for proc,log,job in running.values():
-            ret=proc.wait(); log.close()
-            if ret != 0:
-                (root/'runs'/run_id(job)/'failure.json').write_text(json.dumps({'returncode':ret}))
-        break
     time.sleep(30)
-subprocess.run([sys.executable,str(repo/'task4/summarize.py'),'--root',str(root)])
+if a.reference_root:
+    subprocess.run([sys.executable,str(repo/'task4/summarize_seeds.py'),'--root',str(root),
+                    '--reference-root',str(a.reference_root)],check=True)
+else:
+    subprocess.run([sys.executable,str(repo/'task4/summarize.py'),'--root',str(root)],check=True)
