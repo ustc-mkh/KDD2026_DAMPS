@@ -1,6 +1,6 @@
 # Task 4: SMORE baseline and DAMPS
 
-Run one seed (999) for each of five datasets and five variants, 25 distinct configurations. `plan.json` is fixed before training; no parameter search or selection on test data.
+Completed 45 runs: the original 25 distinct dataset/variant configurations at seed 999, plus Raw/Full on all five datasets at seeds 2024 and 2025. Plans were fixed before training; no parameter search or selection on test data. The [three-seed report](results/three_seed/RESULTS.md) contains the final Raw/Full comparison, while the [first-round report](results/RESULTS.md) contains the single-seed ablations. The measured results do not show a consistent DAMPS gain.
 
 ## Sources and integration
 
@@ -66,7 +66,7 @@ At queue completion `summarize_seeds.py` combines the ten original Raw/Full resu
 python task4/summarize_seeds.py --root /absolute/followup-root --reference-root /absolute/first-root
 ```
 
-The frozen source and dataset fingerprints are recorded in `audit_20261031/fixed_protocol.json`. A PR will be proposed only after reviewing the completed repeated-seed results.
+The frozen source and dataset fingerprints are recorded in `audit_20261031/fixed_protocol.json`. All 20 follow-up runs completed without failures on 2026-10-31 at approximately 14:05 Asia/Shanghai (3 hours 40 minutes wall time). Their fixed protocol, source commit, environment, dataset fingerprints and validation-selected checkpoints were independently verified before preparing the PR. See `results/three_seed/evidence.json` for portable copies of all 30 Raw/Full results, effective configurations and epoch records; the report includes every seed, sample standard deviations and paired differences. Of the 20 mean metrics, 7 increased, 12 decreased and 1 tied; these are descriptive results, not evidence of statistical significance or reproduction of the paper's claimed gains.
 
 ## Direct preparation and environment reconstruction
 
