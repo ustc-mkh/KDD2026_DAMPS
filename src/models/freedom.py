@@ -17,7 +17,7 @@ import torch.nn.functional as F
 from common.abstract_recommender import GeneralRecommender
 from common.loss import BPRLoss, EmbLoss, L2Loss
 from utils.utils import build_sim, compute_normalized_laplacian
-from .damps import Damps
+from .damps import DAMPS as Damps
 
 class FREEDOM(GeneralRecommender):
     def __init__(self, config, dataset):
@@ -30,7 +30,7 @@ class FREEDOM(GeneralRecommender):
         self.cf_model = config['cf_model']
         self.n_layers = config['n_mm_layers']
         self.n_ui_layers = config['n_ui_layers']
-        self.reg_weight = config['reg_weight']
+        self.reg_weight = float(config['reg_weight'])
         self.build_item_graph = True
         self.mm_image_weight = config['mm_image_weight']
         self.dropout = config['dropout']
@@ -67,7 +67,7 @@ class FREEDOM(GeneralRecommender):
 
         # self.feature_filter = SMOREFrequencyFilter(self.embedding_dim, self.device, self.v_feat, self.t_feat)
         if os.path.exists(mm_adj_file):
-            self.mm_adj = torch.load(mm_adj_file)
+            self.mm_adj = torch.load(mm_adj_file, map_location=self.device)
         else:
             if self.v_feat is not None:
                 indices, image_adj = self.get_knn_adj_mat(self.image_embedding.weight.detach())
@@ -168,6 +168,12 @@ class FREEDOM(GeneralRecommender):
 
     def forward(self, adj):
         h = self.item_id_embedding.weight
+
+        # 将物品图移动到 embedding 所在设备。
+        if self.mm_adj.device != h.device:
+            self.mm_adj = self.mm_adj.to(h.device)
+        adj = adj.to(h.device)
+
         for i in range(self.n_layers):
             h = torch.sparse.mm(self.mm_adj, h)
 

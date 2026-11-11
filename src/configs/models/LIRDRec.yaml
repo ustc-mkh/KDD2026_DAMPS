@@ -17,6 +17,6 @@ n_ui_layers: [1, 2, 3, 4]
 dropout: 0.0
 decay_base: 0.9
 decay_weight: [0.9, 0.95, 0.99]
-weight_decay: [0, 1e-6, 1e-5]
+weight_decay: [0, 0.000001, 0.00001]
 
 hyper_parameters: ["n_ui_layers", "mm_image_weight", "reg_weight", "learning_rate", "weight_decay", "decay_weight"]
